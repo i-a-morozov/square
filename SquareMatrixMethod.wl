@@ -61,7 +61,7 @@ sm$make$map[                                      (* -- make map in eigenmonomia
     {sm$variables, sm$transformation, sm$forward, sm$inverse, sm$output},
     sm$variables = ToExpression[Array[StringTemplate["z$`1`"], sm$dimension]] ;
     sm$transformation = Fold[ArrayFlatten[{{#1, 0}, {0, #2}}] & , ConstantArray[Inverse[{{1, -I}, {1, I}}], sm$dimension/2]] ;
-     sm$direct = Simplify[matrix . sm$transformation] ;
+    sm$direct = Simplify[matrix . sm$transformation] ;
     sm$inverse = Simplify[Inverse[sm$direct]] ;
     sm$output = sm$inverse . mapping[sm$direct . sm$variables] ;
     sm$output = Function @@ {sm$variables, sm$chop[PowerExpand @* Expand @* TrigToExp /@ sm$output]} ;
@@ -464,7 +464,7 @@ sm$count$dimension[                               (* -- count invariant subspace
 ] ;
 
 (* ################################################################################################################## *)
-(* COMPUTE EIGENVECTORS (DELTA = W2/W0 - (W1/W0)^2) *)
+(* COMPUTE EIGENVECTORS *) 
 (* ################################################################################################################## *)
 
 ClearAll[sm$make$vectors] ;
@@ -473,7 +473,8 @@ sm$make$vectors::usage = "sm$make$vectors[value, matrix] -- make left eigenvecto
 
 Options[sm$make$vectors] = {
     "Verbose" -> False,                           (* -- verbose flag *)
-    "Symbolic" -> False                           (* -- symbolic flag (linear system solver) *)
+    "BLAS" -> True,                               (* -- flag to use BLAS TRSV solver *)
+    "Method" -> Automatic                         (* -- linear solve method if not BLAS *)
 } ;
 
 sm$make$vectors[                                  (* -- make left eigenvectors *)
@@ -507,7 +508,7 @@ sm$make$vectors[                                  (* -- make left eigenvectors *
     sm$print["Set zero and arbitrary components..."] ;
     sm$vectors = (TakeList[#, sm$counts] & ) /@ sm$vectors ;
     sm$factors = ConstantArray[1, sm$degree] ;
-    sm$factors = (PadLeft[Take[sm$factors, {1 + 1, sm$degree}], sm$degree] & ) /@ sm$range ;
+    sm$factors = (PadLeft[Take[sm$factors, {# + 1, sm$degree}], sm$degree] & ) /@ sm$range ;
     sm$vectors = Flatten /@ (sm$factors*sm$vectors) ;
     sm$vectors[[1, sm$positions]] = PadRight[{1}, Length[sm$positions]] ;
     sm$positions = (Pick[sm$positions, Thread[sm$positions >= sm$intervals[[#, 1]]], True] & ) /@ Rest[sm$range] ;
@@ -573,9 +574,9 @@ sm$make$vectors[                                  (* -- make left eigenvectors *
                 sm$print["Solve linear system..."] ;
                 sm$time = AbsoluteTiming[
                     If[
-                        OptionValue["Symbolic"],
-                        sm$rhs = Inverse[sm$lhs, Method -> "CofactorExpansion"] . sm$rhs,
-                        LinearAlgebra`BLAS`TRSV["U", "N", "N", sm$lhs, sm$rhs]
+                        OptionValue["BLAS"],
+                        LinearAlgebra`BLAS`TRSV["U", "N", "N", sm$lhs, sm$rhs],
+                        sm$rhs = LinearSolve[sm$lhs, sm$rhs, Method -> OptionValue["Method"]]
                     ] ;
                     sm$rhs = sm$chop[Expand /@ sm$rhs] ;
                     Set @@ {sm$variables, sm$rhs} ;
@@ -598,11 +599,12 @@ sm$make$vectors[                                  (* -- make left eigenvectors *
 
 ClearAll[sm$make$vectors$one] ;
 
-sm$make$vectors::usage = "sm$make$vectors$one[matrix] -- make left eigenvectors for eigenvalue 1 and square matrix <matrix> " ;
+sm$make$vectors$one::usage = "sm$make$vectors$one[matrix] -- make left eigenvectors for eigenvalue 1 and square matrix <matrix> " ;
 
 Options[sm$make$vectors$one] = {
     "Verbose" -> False,                           (* -- verbose flag *)
-    "Symbolic" -> False                           (* -- symbolic flag (linear system solver) *)
+    "BLAS" -> True,                               (* -- flag to use BLAS TRSV solver *)
+    "Method" -> Automatic                         (* -- linear solve method if not BLAS *)
 } ;
 
 sm$make$vectors$one[                              (* -- make left eigenvectors *)
@@ -670,9 +672,11 @@ sm$make$vectors$one[                              (* -- make left eigenvectors *
                 sm$print[StringTemplate["Finished in `1` sec."][First[sm$time]]] ;
                 sm$print["Solve linear system..."] ;
                 sm$time = AbsoluteTiming[
-                    If[OptionValue["Symbolic"],
-                    sm$rhs = Inverse[sm$lhs, Method -> "CofactorExpansion"] . sm$rhs,
-                    LinearAlgebra`BLAS`TRSV["U", "N", "N", sm$lhs, sm$rhs]] ;
+                    If[
+                        OptionValue["BLAS"],
+                        LinearAlgebra`BLAS`TRSV["U", "N", "N", sm$lhs, sm$rhs],
+                        sm$rhs = LinearSolve[sm$lhs, sm$rhs, Method -> OptionValue["Method"]] ;
+                    ] ;
                     sm$rhs = sm$chop[Expand /@ sm$rhs] ;
                     Set @@ {sm$variables, sm$rhs} ;
                 ] ;
@@ -685,7 +689,6 @@ sm$make$vectors$one[                              (* -- make left eigenvectors *
     sm$print["Return vector..."] ;
     {sm$chop[sm$vectors]}
 ] ;
-
 
 (* ################################################################################################################## *)
 (* MAKE COORDINATE *)
@@ -714,21 +717,24 @@ sm$make$coordinate[monomial_,variables_][vector_] := sm$make$coordinate[monomial
 
 ClearAll[sm$make$invariant] ;
 
+ClearAll[sm$make$invariant] ;
+
 sm$make$invariant::usage = "sm$make$invariant[degree, variables, coordinate] -- make invariant " ;
 
 sm$make$invariant[                                (* -- make invariant (amplitude of normal form coordinate) *)
     degree_,                                      (* -- truncation degree *)
     variables_,                                   (* -- list of phase space variables *)
-    coordinate_                                   (* -- normal coordinate *)
+    coordinate_,                                  (* -- normal coordinate *)
+    simplify_:Identity                            (* -- simplification function *)
 ] := Block[
-    {sm$epsilon, sm$rule, sm$coordinate, sm$invariant},
+    {sm$epsilon, sm$rule, sm$coordinate, sm$conjugate, sm$invariant},
     sm$epsilon /: sm$epsilon^(sm$power_) /; sm$power > degree := 0;
     sm$rule = Dispatch[Thread[variables -> sm$epsilon*variables]] ;
-    sm$coordinate = Collect[coordinate  /. sm$rule, sm$epsilon] ;
-    sm$invariant = ComplexExpand[coordinate]*ComplexExpand[Conjugate[coordinate]] ;
-    sm$invariant = Collect[sm$invariant, sm$epsilon] ;
+    sm$coordinate = coordinate /. sm$rule ;
+    sm$conjugate = sm$coordinate /. Complex[real_, imaginary_] :> Complex[real, -imaginary] ;
+    sm$invariant = Collect[sm$coordinate*sm$conjugate, sm$epsilon] ;
     sm$epsilon = 1 ;
-    Function @@ {variables, sm$invariant}
+    Function @@ {variables, Total[simplify /@ MonomialList[sm$invariant, variables]]}
 ] ;
 
 sm$make$invariant[degree_, variables_][coordinate_] := sm$make$invariant[degree, variables, coordinate] ;
