@@ -1,5 +1,7 @@
 # Square Matrix Method in Wolfram Mathematica, 2024
 
+[![DOI](https://zenodo.org/badge/882196365.svg)](https://doi.org/10.5281/zenodo.14064954)
+
 Implementation of Square Matrix Method described in DOI: 10.1103/PhysRevAccelBeams.20.034001
 
 Computation of square matrix representation, left eigenvectors, normal form complex coordinates, invariants and frequencies
