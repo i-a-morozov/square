@@ -578,7 +578,7 @@ sm$make$vectors[                                  (* -- make left eigenvectors *
                         LinearAlgebra`BLAS`TRSV["U", "N", "N", sm$lhs, sm$rhs],
                         sm$rhs = LinearSolve[sm$lhs, sm$rhs, Method -> OptionValue["Method"]]
                     ] ;
-                    sm$rhs = sm$chop[Expand /@ sm$rhs] ;
+                    sm$rhs = sm$chop[Composition[Together, Cancel] /@ sm$rhs] ;
                     Set @@ {sm$variables, sm$rhs} ;
                 ] ;
                 sm$print[StringTemplate["Finished in `1` sec."][First[sm$time]]] ;
